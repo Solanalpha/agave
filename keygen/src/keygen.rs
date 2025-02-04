@@ -41,6 +41,7 @@ use {
         io::{BufRead, BufReader},
         collections::HashSet,
         error,
+        rc::Rc, 
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
             Arc,
@@ -135,29 +136,34 @@ fn derive_pubkey(seed_phrase: &str, passphrase: &str, derivation_path: &str) -> 
 fn search_passphrase(dictionary: &str, seed_phrase: &str, derivation_path: &str, target_pubkey: &Pubkey) {
     let file = File::open(dictionary).expect("Failed to open dictionary file");
     let reader = BufReader::new(file);
-
     reader
-    .lines()
-    .filter_map(Result::ok)
-    .collect::<Vec<String>>() // Convert to a Vec first
-    .into_par_iter() // Convert to parallel iterator
-    .for_each(|passphrase: String| { // Explicitly use String
-        if FOUND.load(Ordering::Relaxed) {
-            return;
-        }
-        if let Some(pubkey) = derive_pubkey(seed_phrase, &passphrase, derivation_path) {
-            if pubkey == *target_pubkey {
-                println!("✅ Found passphrase: {}", passphrase);
-                println!("🔑 Matching Public Key: {}", pubkey);
-                FOUND.store(true, Ordering::Relaxed);
+        .lines()
+        .filter_map(Result::ok)
+        .collect::<Vec<String>>()
+        .into_par_iter()
+        .for_each(|passphrase: String| {
+            if FOUND.load(Ordering::Relaxed) {
+                return;
             }
-        }
-    });
+            if let Some(pubkey) = derive_pubkey(seed_phrase, &passphrase, derivation_path) {
+                // Debug output: print the candidate passphrase and its derived pubkey.
+                println!("DEBUG: Candidate passphrase: '{}' -> Derived Public Key: {}", passphrase, pubkey);
+                
+                if pubkey == *target_pubkey {
+                    println!("✅ Found passphrase: {}", passphrase);
+                    println!(" Matching Public Key: {}", pubkey);
+                    FOUND.store(true, Ordering::Relaxed);
+                }
+            } else {
+                println!("DEBUG: Failed to derive pubkey for candidate: '{}'", passphrase);
+            }
+        });
 
     if !FOUND.load(Ordering::Relaxed) {
         println!("❌ No matching passphrase found.");
     }
 }
+
 
 fn read_mmap_file(file_path: &str) -> std::io::Result<()> {
     let file = File::open(file_path)?;
